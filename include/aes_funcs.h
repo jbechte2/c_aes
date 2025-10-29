@@ -5,7 +5,7 @@
 #include "expand_key.h"
 
 void usage(int exit_code);
-int read_vector(char* vector_file, uint8_t* vector);
+uint8_t* read_vector(char* vector_file, uint64_t* size);
 void add_round_key(uint8_t* state, uint8_t* ekey, int offset);
 void byte_sub(uint8_t* state, bool is_encrypt);
 void shift_row(uint8_t* state, bool is_encrypt);

@@ -11,7 +11,7 @@ void test_add_round_key() {
     uint8_t* key   = malloc(sizeof(uint8_t) * (32 + 1));
     uint8_t* ekey  = malloc(sizeof(uint8_t) * (240 + 1));
     
-    read_vector(vector_file, state);
+    read_key(vector_file, state);
 
     int len_key = read_key(key_file, key);
     
@@ -36,7 +36,7 @@ void test_byte_sub() {
     uint8_t* key   = malloc(sizeof(uint8_t) * (32 + 1));
     uint8_t* ekey  = malloc(sizeof(uint8_t) * (240 + 1));
     
-    read_vector(vector_file, state);
+    read_key(vector_file, state);
 
     int len_key = read_key(key_file, key);
     
@@ -61,7 +61,7 @@ void test_shift_row() {
     uint8_t* key   = malloc(sizeof(uint8_t) * (32 + 1));
     uint8_t* ekey  = malloc(sizeof(uint8_t) * (240 + 1));
     
-    read_vector(vector_file, state);
+    read_key(vector_file, state);
 
     int len_key = read_key(key_file, key);
     
@@ -158,6 +158,9 @@ void test_mix_column() {
 }
 
 void test_aes() {
+
+    // AES-128    
+
     uint8_t* key  = malloc(sizeof(uint8_t) * (32 + 1));
 
     char* key_file = "test_keys/key0";
@@ -168,7 +171,7 @@ void test_aes() {
     uint8_t *state = malloc(sizeof(uint8_t) * 16);
     uint8_t *vector = malloc(sizeof(uint8_t) * 16);
 
-    read_vector(vector_file, state);
+    read_key(vector_file, state);
 
     for (int i = 0; i < 16; i++)
         vector[i] = state[i];
@@ -201,13 +204,59 @@ void test_aes() {
     for (int i = 0; i < 16; i++)
         assert(state[i] == vector[i]);
     
-    char buffer[BUFSIZ];
-    print_uint8_t_array(state, 16, buffer);
-    printf("%s\n", buffer);
+    // AES-192
+
+    char* key_file1 = "test_keys/key192";
+    char* vector_file1 = "test_vectors/vector192";
+
+    len_key = read_key(key_file1, key);
+ 
+    read_key(vector_file1, state);
+
+    uint8_t *enc = malloc(sizeof(uint8_t) * 16);
+    read_key("test_vectors/vector192enc", enc);
+    
+    for (int i = 0; i < 16; i++)
+        vector[i] = state[i];
+
+    aes(state, key, len_key, true);
+    
+    for (int i = 0; i < 16; i++)
+        assert(state[i] == enc[i]);
+
+    aes(state, key, len_key, false);
+   
+    for (int i = 0; i < 16; i++)
+        assert(state[i] == vector[i]);
+
+    // AES-256
+
+    char* key_file2 = "test_keys/key256";
+    char* vector_file2 = "test_vectors/vector256";
+
+    len_key = read_key(key_file2, key);
+ 
+    read_key(vector_file2, state);
+
+    read_key("test_vectors/vector256enc", enc);
+    
+    for (int i = 0; i < 16; i++)
+        vector[i] = state[i];
+
+    aes(state, key, len_key, true);
+    
+    for (int i = 0; i < 16; i++)
+        assert(state[i] == enc[i]);
+
+    aes(state, key, len_key, false);
+   
+    for (int i = 0; i < 16; i++)
+        assert(state[i] == vector[i]);
 
     free(key);
     free(state);
     free(vector);
+    free(enc);
     puts("aes passed!");
 }
 

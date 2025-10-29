@@ -1,6 +1,42 @@
+/*
+ * -----------------------------------------------------------------------------
+ * File: expand_key.c
+ * Author: Jacob Bechtel
+ *
+ * Description:
+ *   Implementation of the AES key expansion (Rijndael key schedule) and its
+ *   supporting helper functions. This file handles reading and parsing keys
+ *   from files, performing S-box and Rcon transformations, and generating
+ *   the full expanded key used in encryption and decryption rounds.
+ *
+ * Details:
+ *   Implements AES-128, AES-192, and AES-256 key schedule variants.
+ *   Includes helper functions for:
+ *     - Whitespace stripping and hex parsing from text key files
+ *     - S-box substitution (SubWord)
+ *     - Word rotation (RotWord)
+ *     - Round constant lookup (Rcon)
+ *     - Word packing/unpacking from byte arrays
+ *
+ * Attribution:
+ *   This file's documentation was developed with assistance from
+ *   OpenAI’s ChatGPT (GPT-5 model) to ensure correctness, readability, and
+ *   consistency with AES standard specifications and the overall project style.
+ *   All algorithmic logic and final verification were performed by the author.
+ *
+ * Date: October 2025
+ * -----------------------------------------------------------------------------
+ */
+
 #include "../include/expand_key.h"
 
-// helper function for file reading
+/* --------------------------------------------------------------------------
+ * File Reading Utilities
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Strip all whitespace characters from a NUL-terminated string in place.
+ */
 void strip_whitespace(char* s) {
     char *src = s, *dst = s;
     while (*src) {
@@ -12,53 +48,28 @@ void strip_whitespace(char* s) {
     *dst = '\0';
 }
 
-// another helper function for file reading
+/**
+ * @brief Convert a single hexadecimal character to its numeric 4-bit value.
+ *        Exits on invalid input.
+ */
 uint8_t char_to_hex(char c) {
     switch (c) {
-        case '0':
-            return 0x00;
-        case '1':
-            return 0x01;
-        case '2':
-            return 0x02;
-        case '3':
-            return 0x03;
-        case '4':
-            return 0x04;
-        case '5':
-            return 0x05;
-        case '6':
-            return 0x06;
-        case '7':
-            return 0x07;
-        case '8':
-            return 0x08;
-        case '9':
-            return 0x09;
-        case 'A':
-            return 0x0A;
-        case 'a':
-            return 0x0A;
-        case 'B':
-            return 0x0B;
-        case 'b':
-            return 0x0B;
-        case 'C':
-            return 0x0C;
-        case 'c':
-            return 0x0C;
-        case 'D':
-            return 0x0D;
-        case 'd':
-            return 0x0D;
-        case 'E':
-            return 0x0E;
-        case 'e':
-            return 0x0E;
-        case 'F':
-            return 0x0F;
-        case 'f':
-            return 0x0F;
+        case '0': return 0x00;
+        case '1': return 0x01;
+        case '2': return 0x02;
+        case '3': return 0x03;
+        case '4': return 0x04;
+        case '5': return 0x05;
+        case '6': return 0x06;
+        case '7': return 0x07;
+        case '8': return 0x08;
+        case '9': return 0x09;
+        case 'A': case 'a': return 0x0A;
+        case 'B': case 'b': return 0x0B;
+        case 'C': case 'c': return 0x0C;
+        case 'D': case 'd': return 0x0D;
+        case 'E': case 'e': return 0x0E;
+        case 'F': case 'f': return 0x0F;
         default:
             fprintf(stderr, "Error: Invalid character [%c] in key file\n", c);
             exit(1);
@@ -66,12 +77,17 @@ uint8_t char_to_hex(char c) {
 
         return -1;
 }
+/* --------------------------------------------------------------------------
+ * Key Reading
+ * -------------------------------------------------------------------------- */
 
-// returns the key length and puts the key from the file in an array of uint8_t
+/**
+ * @brief Read an ASCII hex key file, strip whitespace, and load bytes into key[].
+ *        Supports AES-128/192/256 key lengths (16/24/32 bytes).
+ */
 int read_key(char* key_file, uint8_t* key) {
 
-    // open file
-    FILE *f = fopen(key_file, "r");
+    FILE* f = fopen(key_file, "r");
     if (!f) {
         fprintf(stderr, "Error: failed to open %s\n", key_file);
         exit(1);
@@ -84,7 +100,6 @@ int read_key(char* key_file, uint8_t* key) {
     while ((c = fgetc(f)) != EOF)
         buffer[i++] = c;
 
-    // remember to close file
     fclose(f);
 
     buffer[i] = '\0';
@@ -105,16 +120,22 @@ int read_key(char* key_file, uint8_t* key) {
 
     return i;
 }
+/* --------------------------------------------------------------------------
+ * Rijndael Word Operations
+ * -------------------------------------------------------------------------- */
 
-// rotate a 4 byte word to the left
-// 1,2,3,4 -> 2,3,4,1
+/**
+ * @brief Rotate a 32-bit word left by one byte: [b0 b1 b2 b3] → [b1 b2 b3 b0].
+ */
 uint32_t rot_word(uint32_t rot_me) {
     uint32_t byte1 = rot_me >> 24;
     rot_me <<= 8;
     return rot_me | byte1;
 };
 
-// apply s-box substitution to the provided word
+/**
+ * @brief Apply AES S-box substitution to all bytes of a 32-bit word.
+ */
 uint32_t sub_word(uint32_t sub_me) {
     uint8_t s0 = sub_me >> 24;
     uint8_t s1 = (sub_me & 0x00FF0000) >> 16;
@@ -137,12 +158,20 @@ uint32_t sub_word(uint32_t sub_me) {
     return ret_val;
 }
 
-// return the rcon lookup table value corresponding to the input
+/**
+ * @brief Return the Rcon value for a given round index.
+ */
 uint32_t rcon(uint32_t rcon_me) {
     return AES_RCON[rcon_me];
 }
 
-// return the specified 4 bytes of the expanded key
+/* --------------------------------------------------------------------------
+ * Key and Expanded Key Access
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @brief Extract 4 bytes from expanded key array as a big-endian 32-bit word.
+ */
 uint32_t EK(uint8_t* ekey, int len_ekey, int offset) {
     if (offset > len_ekey - 4)
         exit(1);
@@ -154,12 +183,16 @@ uint32_t EK(uint8_t* ekey, int len_ekey, int offset) {
     
 }
 
-// return the specified 4 bytes of the key
+/**
+ * @brief Extract 4 bytes from the original key array (wrapper over EK()).
+ */
 uint32_t K(uint8_t* key, int len_key, int offset) {
     return EK((uint8_t*)key, len_key, offset);
 }
 
-// Store 4 bytes of the expanded key
+/**
+ * @brief Store a 32-bit word as 4 bytes (big-endian) at the target location.
+ */
 void store_ekey(uint8_t* loc, uint32_t store_val) {
     loc[0] = store_val >> 24;
     loc[1] = (store_val & 0x00FF0000) >> 16;
@@ -168,11 +201,18 @@ void store_ekey(uint8_t* loc, uint32_t store_val) {
     
 }
 
-// utilize the above functions to complete the expand key algorithm
-void expand_key(uint8_t* key, int len_key, uint8_t* ekey) {
-    // Key length determines how many rounds to expand the key
+/* --------------------------------------------------------------------------
+ * AES Key Expansion
+ * -------------------------------------------------------------------------- */
 
-    // Calculate useful variables
+/**
+ * @brief Perform the AES key schedule expansion.
+ *
+ * Expands 16-, 24-, or 32-byte cipher keys into the full round key array.
+ */
+void expand_key(uint8_t* key, int len_key, uint8_t* ekey) {
+    
+    // Key length determines how many rounds to expand the key
     int round_num = 0;
     int num_rounds = len_key + 28;
     int len_ekey = num_rounds*4;
@@ -188,11 +228,18 @@ void expand_key(uint8_t* key, int len_key, uint8_t* ekey) {
     // Every 4, 6 or 8 rounds, perform the complex function, otherwise xor with previous bytes
     while (round_num < num_rounds) {
         if (round_num % (len_key/4) == 0) {
-            store_ekey(ekey + round_num*4, sub_word(rot_word(EK(ekey, len_ekey, (round_num - 1)*4))) ^ rcon(round_num/(len_key/4) - 1) ^ EK(ekey, len_ekey, (round_num - (len_key/4))*4));
+            store_ekey(ekey + round_num*4, 
+                sub_word(rot_word(EK(ekey, len_ekey, (round_num - 1)*4))) ^ 
+                rcon(round_num/(len_key/4) - 1) ^ 
+                EK(ekey, len_ekey, (round_num - (len_key/4))*4));
         } else if (len_key == 32 && round_num % 4 == 0) {
-            store_ekey(ekey + round_num*4, sub_word(EK(ekey, len_ekey, (round_num - 1)*4)) ^ EK(ekey, len_ekey, (round_num - len_key/4)*4));
+            store_ekey(ekey + round_num*4, 
+                sub_word(EK(ekey, len_ekey, (round_num - 1)*4)) ^ 
+                EK(ekey, len_ekey, (round_num - len_key/4)*4));
         } else {
-            store_ekey(ekey + round_num*4, EK(ekey, len_ekey, (round_num - 1)*4) ^ EK(ekey, len_ekey, (round_num - (len_key/4))*4));
+            store_ekey(ekey + round_num*4, 
+                EK(ekey, len_ekey, (round_num - 1)*4) ^ 
+                EK(ekey, len_ekey, (round_num - (len_key/4))*4));
         }
          
         round_num++;
