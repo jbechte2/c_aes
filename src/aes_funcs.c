@@ -3,13 +3,11 @@
 void usage(int exit_code) {
     if (exit_code != 0)
         printf("Invalid input\n");
-    printf("aes [-e/d] [KEY_FILE] [VECTOR_FILE]");
+    printf("USAGE: aes [OPTIONS] [KEY_FILE] [VECTOR_FILE]");
     exit(exit_code);
 }
 
-uint8_t* read_vector(char* vector_file, uint64_t* size) {
-    // TODO: make this a real fuction that gets more than just a single 16 byte vector
-    //return read_key(vector_file, vector);
+uint8_t* read_vector(char* vector_file, uint64_t* size, bool is_encrypt) {
     
     FILE* f = fopen(vector_file, "rb");
     if (!f) {
@@ -34,20 +32,24 @@ uint8_t* read_vector(char* vector_file, uint64_t* size) {
 
     fclose(f);
 
-    // Pad out to a multiple of 16 bytes with the number of padded bytes per the PKCS standard for CBC
-    uint8_t pad_bytes = *size % 16 == 0 ? 16 : 16 - (*size % 16);
-    printf("size = %ld\npad_bytes = %d\n", *size, pad_bytes);
-    for (int i = 0; i < pad_bytes; i++)
-        vector[(*size)++] = pad_bytes;
+    /* Pad out to a multiple of 16 bytes with the number of padded bytes 
+     * per the PKCS standard for CBC, only for encryption
+     */
+    if (is_encrypt) {
+        uint8_t pad_bytes = *size % 16 == 0 ? 16 : 16 - (*size % 16);
+        //printf("size = %ld\npad_bytes = %d\n", *size, pad_bytes);
+        for (int i = 0; i < pad_bytes; i++)
+            vector[(*size)++] = pad_bytes;
 
-    // Realloc smaller to fit the exact memory used for the vector
-    uint8_t* smaller_vector = realloc(vector, (*size));
+        // Realloc smaller to fit the exact memory used for the vector
+        uint8_t* smaller_vector = realloc(vector, (*size));
 
-    // TODO: make this less jank
-    if (!smaller_vector)
-        exit(1);
+        // TODO: make this less jank
+        if (!smaller_vector)
+            exit(1);
     
-    vector = smaller_vector;
+        vector = smaller_vector;
+    }
     
     return vector;
 }
@@ -113,12 +115,9 @@ void shift_row(uint8_t* state, bool is_encrypt) {
 }
 
 uint8_t gf_mul(uint8_t a, uint8_t b) {
-    if (a == 0 || b == 0)
-        return 0;
-    else if (a == 1)
-        return b;
-    else if (b == 1)
-        return a;
+    if (a == 0 || b == 0) return 0;
+    else if (a == 1) return b;
+    else if (b == 1) return a;
     
     a = AES_L[a];
     b = AES_L[b];
@@ -154,12 +153,7 @@ void mix_column(uint8_t* state, bool is_encrypt) {
         state[i] = temp[i];
 }
 
-void aes(uint8_t* state, uint8_t* key, int len_key, bool is_encrypt) {
-
-    // By definition, the longest the expanded key can be is 240 bytes
-    uint8_t ekey[240];
-    expand_key(key, len_key, ekey);
-
+void aes(uint8_t* state, uint8_t* ekey, int len_key, bool is_encrypt) {
     int round_num = 0;
 
     // Calculate number of rounds

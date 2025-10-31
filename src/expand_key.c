@@ -90,6 +90,7 @@ int read_key(char* key_file, uint8_t* key) {
     FILE* f = fopen(key_file, "r");
     if (!f) {
         fprintf(stderr, "Error: failed to open %s\n", key_file);
+        free(key);
         exit(1);
     }
 
