@@ -7,7 +7,27 @@ void usage(int exit_code) {
     exit(exit_code);
 }
 
-uint8_t* read_vector(char* vector_file, uint64_t* size, bool is_encrypt) {
+uint8_t* gen_IV() {
+
+    uint8_t* IV = malloc(sizeof(uint8_t) * 16);
+    if (!IV) {
+        fprintf(stderr, "Error allocating IV.\n");
+        exit(1);
+    }
+
+    uint8_t temp = 0;
+    srand(time(NULL));
+
+    for (int i = 0; i < 16; i++) {
+        temp = rand() % 0xFFFF;
+        IV[i] = (uint8_t)temp;
+    }
+
+    return IV;
+
+}
+
+uint8_t* read_vector(char* vector_file, uint64_t* size, Op_mode op_mode, bool is_encrypt) {
     
     FILE* f = fopen(vector_file, "rb");
     if (!f) {
@@ -17,6 +37,15 @@ uint8_t* read_vector(char* vector_file, uint64_t* size, bool is_encrypt) {
     
     uint64_t capacity = BUFSIZ * sizeof(uint8_t);
     uint8_t* vector = malloc(capacity);
+   
+    // Initialize IV for modes that use one
+    if (is_encrypt && (op_mode == CBC || op_mode == CFB || op_mode == OFB)) {
+        uint8_t* IV = gen_IV();
+        for (int i = 0; i < 16; i++) {
+            vector[(*size)++] = IV[i];
+        }
+        free(IV);
+    }
     
     int c;
     while ((c = fgetc(f)) != EOF) {
@@ -29,29 +58,44 @@ uint8_t* read_vector(char* vector_file, uint64_t* size, bool is_encrypt) {
         }
         vector[(*size)++] = (uint8_t)c;
     }
+    
+    if (is_encrypt && (op_mode == ECB || op_mode == CBC)) {
+        uint8_t pad_bytes = *size % 16 == 0 ? 16 : 16 - (*size % 16);
+        printf("pad_bytes = %d\n", pad_bytes);
+        for (int i = 0; i < pad_bytes; i++) {
+            if ((*size) + 1 >= capacity) {
+                capacity *= 2;
+                uint8_t* bigger_vector = realloc(vector, capacity);
+                vector = bigger_vector;
+            }
+            vector[(*size)++] = pad_bytes;
+        }
+    }
+
 
     fclose(f);
 
-    /* Pad out to a multiple of 16 bytes with the number of padded bytes 
-     * per the PKCS standard for CBC, only for encryption
-     */
-    if (is_encrypt) {
-        uint8_t pad_bytes = *size % 16 == 0 ? 16 : 16 - (*size % 16);
-        //printf("size = %ld\npad_bytes = %d\n", *size, pad_bytes);
-        for (int i = 0; i < pad_bytes; i++)
-            vector[(*size)++] = pad_bytes;
-
-        // Realloc smaller to fit the exact memory used for the vector
-        uint8_t* smaller_vector = realloc(vector, (*size));
-
-        // TODO: make this less jank
-        if (!smaller_vector)
-            exit(1);
-    
-        vector = smaller_vector;
-    }
-    
     return vector;
+}
+
+void pad_vector(uint8_t* vector, uint64_t* size, Op_mode op_mode) {
+    /* Pad out to a multiple of 16 bytes with the number of padded bytes 
+     * per the PKCS standard for EBC and CBC, only for encryption.
+     */
+    if (op_mode == ECB || op_mode == CBC) {
+        uint8_t pad_bytes = *size % 16 == 0 ? 16 : 16 - (*size % 16);
+        printf("pad_bytes = %d\n", pad_bytes);
+        for (int i = 0; i < pad_bytes; i++) {
+            vector[(*size)++] = pad_bytes;
+            printf("vector[] = %d\n", vector[*size - 1]);
+        }
+    }
+}
+
+void xor_len(uint8_t* v1, uint8_t* v2, uint64_t length) {
+    // xors them together, v1 is the vector you want the result stored in
+    for (uint64_t i = 0; i < length; i++) 
+        v1[i] = v1[i] ^ v2[i];
 }
 
 void add_round_key(uint8_t* state, uint8_t* ekey, int offset) {
@@ -200,4 +244,23 @@ void print_uint8_t_array(uint8_t* arr, int len_arr, char* result) {
         sprintf(result, "%.2x", arr[i]);
         result += 2*sizeof(char);
     }
+}
+
+void file_output(uint8_t* vector, uint64_t len_vector, const char* outfile) {
+    
+    FILE* f = fopen(outfile, "wb");
+    if (!f) {
+        fprintf(stderr, "Error: Output file is not openable\n");
+        free(vector);
+        exit(1);
+    }
+    
+    if (fwrite(vector, sizeof(uint8_t), len_vector, f) != len_vector) {
+        fprintf(stderr, "Error: Output file not properly written to\n");
+        free(vector);
+        fclose(f);
+        exit(1);
+    }
+    
+    fclose(f); 
 }
