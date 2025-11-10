@@ -2,13 +2,14 @@
 #include "../include/expand_key.h"
 
 int main (int argc, char *argv[]) {
-    // Delare variables to be assigned by command line arguments
-    bool is_encrypt = true;
-    Op_mode op_mode = ECB;
-    
     // Parse command line arguments
     if (argc < 3)
         usage(1);
+    
+    // Delare variables to be assigned by command line arguments
+    bool is_encrypt = true;
+    Op_mode op_mode = ECB;
+    char outfile[BUFSIZ] = "output";
 
     char arg[BUFSIZ];
     for (int i = 1; i < argc - 2; i++) {
@@ -30,15 +31,14 @@ int main (int argc, char *argv[]) {
             else if (!strcmp(arg, "OFB")) op_mode = OFB;
             else if (!strcmp(arg, "CTR")) op_mode = CTR;
             else usage(1);
+        } else if (!strcmp(arg, "-o")) {
+            outfile[0] = '\0';
+            strcpy(outfile, argv[++i]);
         } else {
             usage(1);
         }
     }
 
-    // Use encryption mode for decryption for these modes
-    //if (op_mode == CFB || op_mode == OFB || op_mode == CTR)
-        //is_encrypt = true;
-     
     char* key_file = argv[argc - 2];
     char* vector_file = argv[argc - 1];
 
@@ -64,97 +64,72 @@ int main (int argc, char *argv[]) {
     *len_vector = 0;
 
     uint8_t* vector = read_vector(vector_file, len_vector, op_mode, is_encrypt);
-    printf("len_vector = %ld\n", *len_vector);
 
-    //if (is_encrypt)
-        //pad_vector(vector, len_vector, op_mode);
-    printf("vector[-1] = %d\n", vector[*len_vector-1]);
-    
-    //char buffer[*len_vector*BUFSIZ];
-    
-    //print_uint8_t_array(vector, *len_vector, buffer);
-    //printf("%s", buffer);
-    
-    //printf(" -> ");
-    
     uint8_t* state = vector;
     uint64_t remaining = *len_vector;
     uint64_t block_size = 16;
 
-    //for (uint64_t i = 0; i < *len_vector; i++)
-        //printf("vector[%ld] = %.2x\n", i, vector[i]);
-    
-    // TODO: finish implementing non ECB modes
-    uint8_t IV[16], IV_PREV[16];
-        
-    // Copy state bytes to IV 
-    if (!is_encrypt && (op_mode == CBC || op_mode == CFB)) {
-        for (int j = 0; j < 16; j++)
-            IV_PREV[j] = state[j];
-    }
+    uint8_t IV[16];
+    uint8_t IV_PREV[16];
+    for (int j = 0; j < 16; j++)
+        IV[j] = IV_PREV[j] = state[j];
 
-    for (uint64_t i = 0; i < *len_vector / 16; i++) {
-        printf("remaining = %ld\n", remaining);
+    if (op_mode == CTR)
+        for (int j = 0; j < 16; j++)
+            IV[j] = IV_PREV[j] = 0;
+        
+    uint64_t aes_loop_total = *len_vector % 16 == 0 ? *len_vector / 16 : *len_vector / 16 + 1;
+    for (uint64_t i = 0; i < aes_loop_total; i++) {
        
-        // first block is the IV for non ECB CTR modes
+        // first block is the IV for non ECB or CTR modes
         if (i == 0) {
             if (op_mode != ECB && op_mode != CTR) {
                 remaining -= 16;
                 puts("IV used.");
                 state += 16;
+                continue;
             }
-            continue;
         }
-        
-        // Copy state bytes to IV 
+         
+        // Copy state bytes to IV, then perform XOR for CFB encryption
         if (!is_encrypt && (op_mode == CBC || op_mode == CFB)) {
             for (int j = 0; j < 16; j++)
                 IV[j] = state[j];
-        }
-
-
-        if (is_encrypt)
-            for (uint64_t j = 0; j < 16; j++)
-                printf("state[%ld] = %.2x\n", j, state[j]);
-
-        if (op_mode == CBC && is_encrypt) {
+        } else if (op_mode == CBC && is_encrypt) {
             puts("CBC encrypt");
             xor_len(state, state-16, 16);
         }
 
-        //printf("aes loop count = %ld\n", i);
+        // Perform encryption/decryption of either the plaintext/ciphertext and key, or the IV with the key
         if (op_mode == ECB || op_mode == CBC)
             aes(state, ekey, len_key, is_encrypt);
+        else
+            aes(IV_PREV, ekey, len_key, true);
 
-        if (op_mode == CBC && !is_encrypt) {
-            puts("CBC decrypt");
-            xor_len(state, IV_PREV, 16);
+        // Perform post encryption/decryption XORs and IV copying
+        if ((op_mode == CBC && !is_encrypt) || (op_mode == CFB && !is_encrypt)) {
+            xor_len(state, IV_PREV, block_size);
             for (int j = 0; j < 16; j++)
                 IV_PREV[j] = IV[j];
-
+        } else if (op_mode == CFB && is_encrypt) {
+            xor_len(state, IV_PREV, block_size);
+            for (int j = 0; j < 16; j++)
+                IV_PREV[j] = state[j];
+        } else if (op_mode == OFB) {
+            xor_len(state, IV_PREV, block_size);
+        } else if (op_mode == CTR) {
+            xor_len(state, IV_PREV, block_size);
+            IV[15] ++;
+            for (int j = 0; j < 16; j++)
+                IV_PREV[j] = IV[j];
         }
+        
 
-        if (!is_encrypt)
-            for (uint64_t j = 0; j < 16; j++)
-                printf("state[%ld] = %.2x\n", j, state[j]);
-        
-        if (i == (*len_vector/16 - 1)) {
-            printf("state[15] = %d\n", state[15]);
-            printf("vector[-1] = %d\n", vector[*len_vector-1]);
-        }
-        
-        //if (i == (*len_vector/16 - 1))
-            //printf("state[15] = %d\n", state[15]);
-        
-        // TODO: Remove padding function
-        if (is_encrypt == false && i == (*len_vector/16 - 1) && (op_mode == ECB || op_mode == CBC)) {
-            printf("pad_bytes decrypt = %d\n", state[15]);
+        // Remove padding 
+        if (is_encrypt == false && i == (aes_loop_total - 1) && (op_mode == ECB || op_mode == CBC)) {
             *len_vector -= state[15];
-            printf("new len_vector = %ld\n", *len_vector);
-            if ((int)*len_vector < 0) {
-                fprintf(stderr, "Error decrypting.\n");
+            if ((int)*len_vector < 0) 
                 exit(1);
-            }
         }
             
         state += 16;
@@ -162,20 +137,16 @@ int main (int argc, char *argv[]) {
         
         if (remaining < block_size)
             block_size = remaining;
-
-        
     }
-
-    //print_uint8_t_array(vector, *len_vector, buffer);
-    //printf("%s", buffer);
 
     free(key);
     free(ekey);
-    
+   
+    // Print output to a file
     if (op_mode != ECB && op_mode != CTR && !is_encrypt)
-        file_output(vector + 16, *len_vector - 16, "output");
+        file_output(vector + 16, *len_vector - 16, outfile);
     else
-        file_output(vector, *len_vector, "output");
+        file_output(vector, *len_vector, outfile);
     
     free(len_vector);
     free(vector);

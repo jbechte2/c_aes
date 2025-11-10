@@ -72,7 +72,6 @@ uint8_t* read_vector(char* vector_file, uint64_t* size, Op_mode op_mode, bool is
         }
     }
 
-
     fclose(f);
 
     return vector;
