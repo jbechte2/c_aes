@@ -56,4 +56,6 @@ dkms.conf
 # debug information files
 *.dwo
 
+# Files created by the project
 output
+*.swp
